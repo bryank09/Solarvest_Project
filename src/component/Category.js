@@ -167,12 +167,12 @@ export const CategoryScreen = ({ route, navigation }) => {
             let parsedImageSections = storedImageSections ? JSON.parse(storedImageSections) : [];
             parsedImageSections = parsedImageSections.filter(imageSection => imageSection.id !== pictureId);
             RNFS.unlink(imgDirectory)
-            .then(() => {
-                console.log('FILE DELETED from local');
-            })
-            .catch((err) => {
-                console.log(err.message);
-            });
+                .then(() => {
+                    console.log('FILE DELETED from local');
+                })
+                .catch((err) => {
+                    console.log(err.message);
+                });
             // Update AsyncStorage with the filtered imageSections
             await AsyncStorage.setItem('imageSection', JSON.stringify(parsedImageSections));
         } catch (error) {
@@ -219,7 +219,7 @@ export const CategoryScreen = ({ route, navigation }) => {
 
                         // Find the index of the item with matching id and 'delete' opt value
                         const indexToUpdate = storedData.findIndex(items => items.id === item.id && item.opt !== 'delete');
-    
+
                         if (indexToUpdate !== -1) {
                             storedData[indexToUpdate].opt = 'delete';
                             console.log("storedData: " + storedData);
@@ -305,7 +305,7 @@ export const CategoryScreen = ({ route, navigation }) => {
                         description: storedData[i].description,
                         opt: 'create'
                     };
-                    
+
                     //*********Local Storage upload edited picture ********/
                     storedData.splice(i + 1, 0, newItem);
                     try {
@@ -330,8 +330,8 @@ export const CategoryScreen = ({ route, navigation }) => {
         }
     };
 
-    const formatData = (data, category) => {
-        const filteredData = data.filter(item =>
+    const formatData = (storageData, category) => {
+        const filteredData = storageData.filter(item =>
             item.category === category && item.project === project && item.opt != 'delete'
         );
 
@@ -343,14 +343,24 @@ export const CategoryScreen = ({ route, navigation }) => {
             acc[categoryKey].push({
                 ...item
             });
-
             return acc;
         }, {});
-
-        return Object.entries(sections).map(([title, data]) => ({
+        const formattedData = Object.entries(sections).map(([title, data]) => ({
             title,
-            data,
+            data: data.map((item, index) => {
+                const nextIndex = index < data.length - 1 ? storageData.findIndex(elem => elem.id === data[index + 1].id) : null;
+                const prevIndex = index !== 0 ? storageData.findIndex(elem => elem.id === data[index - 1].id) : null;
+                const currentIndex = storageData.findIndex(elem => elem.id === item.id);
+                return {
+                    ...item,
+                    nextIndex,
+                    prevIndex,
+                    currentIndex
+                };
+            })
         }));
+
+        return formattedData;
     };
 
     const fetchData = async () => {
@@ -358,7 +368,6 @@ export const CategoryScreen = ({ route, navigation }) => {
             // ************Fetch Local Storage Data***********
             const storedDataJSON = await AsyncStorage.getItem('imageCategory');
             const storedData = storedDataJSON ? JSON.parse(storedDataJSON) : [];
-            console.log(storedData);
             setCategoryData(formatData(storedData, category));
 
             const imgSectionJSON = await AsyncStorage.getItem('imageSection');
@@ -549,6 +558,20 @@ export const CategoryScreen = ({ route, navigation }) => {
             [sectionTitle]: !expandedSections[sectionTitle],
         });
     };
+    const swapPictureItems = async (currentIndex, newIndex) => {
+        try {
+            const storedDataJSON = await AsyncStorage.getItem('imageCategory');
+            let storedData = storedDataJSON ? JSON.parse(storedDataJSON) : [];
+            const removedItem = storedData.splice(currentIndex, 1)[0];
+            storedData.splice(newIndex, 0, removedItem);
+    
+            await AsyncStorage.setItem('imageCategory', JSON.stringify(storedData));
+    
+            setCategoryData(formatData(storedData, category));
+        } catch (error) {
+            console.error('Error swapping picture items:', error);
+        }
+    };
 
     if (amount) {
         return (
@@ -584,10 +607,20 @@ export const CategoryScreen = ({ route, navigation }) => {
                         onPress={() => toggleSection(category.title)}
                         containerStyle={{ backgroundColor: 'transparent' }}
                     >
-                        {category.data.map((item) => (
+                        {category.data.map((item, index) => (
                             <View key={item.id} >
                                 <View style={styles.displayPictureContainer}>
                                     <View style={{ flex: 1, flexDirection: 'row', columnGap: 15, marginBottom: 5, alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+                                        {index > 0 && (
+                                            <TouchableOpacity onPress={() => swapPictureItems(item.currentIndex, item.prevIndex)}>
+                                                <FontAwesome5 name='arrow-up' size={17} color='black' />
+                                            </TouchableOpacity>
+                                        )}
+                                        {index < category.data.length - 1 && (
+                                            <TouchableOpacity onPress={() => swapPictureItems(item.currentIndex, item.nextIndex)}>
+                                                <FontAwesome5 name='arrow-down' size={17} color='black' />
+                                            </TouchableOpacity>
+                                        )}
                                         <TouchableOpacity onPress={() => deleteItem(item)}>
                                             <FontAwesome5 name='trash' size={17} color='black' />
                                         </TouchableOpacity>

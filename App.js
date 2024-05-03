@@ -26,6 +26,7 @@ import {
   ReloadInstructions,
 } from 'react-native/Libraries/NewAppScreen';
 import Icon from 'react-native-vector-icons/FontAwesome6';
+import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import pptxgen from "pptxgenjs";
 import RNFS from "react-native-fs";
@@ -35,7 +36,7 @@ import axios from 'axios';
 import Pinchable from 'react-native-pinchable';
 import { btoa, atob, toByteArray } from 'react-native-quick-base64';
 import { Settings, retrieveAccessToken } from './src/component/Settings.js';
-
+import { backgroundImg, titleBackgroundImg, mainBackground, titleLogo, siteInfoLogo, dropPointIcon } from './src/assets/images.js'
 import { CategoryScreen, token, generateUniqueId, formDigest, CameraScreen } from './src/component/Category';
 import BackgroundFetch from 'react-native-background-fetch';
 
@@ -172,7 +173,23 @@ const ProjectScreen = ({ navigation }) => {
         onChangeText={setProject} />
       <Button
         title="Create Your Project"
-        onPress={createProject}
+        onPress={() => {
+          Alert.alert(
+            'Create Project?',
+            'Ensure your project name is unique so it doesnt clash with the one existing in sharepoint!',
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel'
+              },
+              {
+                text: 'OK',
+                onPress: createProject // Assuming createProject is your function to create a project
+              }
+            ],
+            { cancelable: false }
+          );
+        }}
       />
       <Text>{tokenData}</Text>
       <Text style={[styles.title, { marginTop: 10 }]}>Project History</Text>
@@ -340,8 +357,8 @@ const HomeScreen = ({ setCategoryName, route, navigation }) => {
 
   const [projectData, setProjectData] = useState([]);
 
-  const formatData = (data, project) => {
-    const filteredData = data.filter(item =>
+  const formatData = (storedData, project) => {
+    const filteredData = storedData.filter(item =>
       item.project === project && item.opt != 'delete'
     );
 
@@ -366,12 +383,24 @@ const HomeScreen = ({ setCategoryName, route, navigation }) => {
 
     return categories.map(({ name }) => {
       const categoryData = sections[name] || {};
-
       return {
         title: name,
         data: Object.entries(categoryData).map(([categoryId, items]) => ({
           title: `No. ${categoryId}`,
-          data: items
+          data: items.map((item, index) => {
+            const nextIndex = index < items.length - 1 ? storedData.findIndex(elem => elem.id === items[index + 1].id) : null;
+            const prevIndex = index !== 0 ? storedData.findIndex(elem => elem.id === items[index - 1].id) : null;
+            const currentIndex = storedData.findIndex(elem => elem.id === item.id);
+            // const nextIndex = index < items.length - 1 ? storedData.indexOf(items[index + 1]) : null;
+            // const prevIndex = index != 0 ? storedData.indexOf(items[index - 1]) : null;
+            // const currentIndex = storedData.indexOf(item);
+            return {
+              ...item,
+              nextIndex,
+              prevIndex,
+              currentIndex
+            };
+          })
         }))
       };
     }).filter(({ data }) => data.length > 0);
@@ -387,7 +416,22 @@ const HomeScreen = ({ setCategoryName, route, navigation }) => {
     } catch (error) {
       console.log(error);
     }
-  }
+  };
+
+  const swapPictureItems = async (currentIndex, newIndex) => {
+    try {
+      const storedDataJSON = await AsyncStorage.getItem('imageCategory');
+      let storedData = storedDataJSON ? JSON.parse(storedDataJSON) : [];
+      const removedItem = storedData.splice(currentIndex, 1)[0];
+      storedData.splice(newIndex, 0, removedItem);
+
+      await AsyncStorage.setItem('imageCategory', JSON.stringify(storedData));
+
+      setProjectData(formatData(storedData, project));
+    } catch (error) {
+      console.error('Error swapping picture items:', error);
+    }
+  };
 
   useFocusEffect(
     React.useCallback(() => {
@@ -444,9 +488,21 @@ const HomeScreen = ({ setCategoryName, route, navigation }) => {
                   onPress={() => toggleSection(`category-${category.title}-${categoryIdGroup.title}`)}
                   containerStyle={{ backgroundColor: 'transparent' }}
                 >
-                  {categoryIdGroup.data.map((item) => (
+                  {categoryIdGroup.data.map((item, index) => (
                     <View key={item.id}>
                       <View style={styles.displayPictureContainer}>
+                        <View style={{ flex: 1, flexDirection: 'row', columnGap: 15, marginBottom: 5, alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+                          {index > 0 && (
+                            <TouchableOpacity onPress={() => swapPictureItems(item.currentIndex, item.prevIndex)}>
+                              <FontAwesome5 name='arrow-up' size={17} color='black' />
+                            </TouchableOpacity>
+                          )}
+                          {index < categoryIdGroup.data.length - 1 && (
+                            <TouchableOpacity onPress={() => swapPictureItems(item.currentIndex, item.nextIndex)}>
+                              <FontAwesome5 name='arrow-down' size={17} color='black' />
+                            </TouchableOpacity>
+                          )}
+                        </View>
                         <View style={{ alignItems: 'center' }}>
                           <Pinchable>
                             <Image source={item.picture == "null" || item.picture != null ? { uri: item.picture } : require('./src/assets/images.png')} style={styles.imageItem} />
@@ -480,6 +536,17 @@ const HomeScreen = ({ setCategoryName, route, navigation }) => {
     </>
   );
 };
+
+const photoItems = [
+  { color: "#0070C0", text: "inverter" },
+  { color: "#000000", text: "Client MSB" },
+  { color: "#FFC000", text: "Client SSB" },
+  { color: "#7030A0", text: "PV-MSB" },
+  { color: "#00B050", text: "TNB P/E" },
+  { icon: dropPointIcon, text: "Cable Drop Point" },
+  { shape: "#FF0000", text: "AC Cable" },
+  { shape: "#FFC000", text: "DC Cable" },
+];
 
 const PptModal = ({ projectData, project, }) => {
   const [modalVisible, setModalVisible] = useState(false);
@@ -558,14 +625,16 @@ const PptModal = ({ projectData, project, }) => {
   };
 
   const generatePowerpoint = async () => {
+    const font = 'Century Gothic';
     try {
       const storedDataJSON = await AsyncStorage.getItem('imageCategory');
       const storedData = storedDataJSON ? JSON.parse(storedDataJSON) : [];
       const filteredData = storedData.filter(item => {
         const isItemChecked = selectedItems.includes(`${item.category}No. ${item.categoryId}`);
         const matchProject = item.project === project;
+        const isNotDeleted = item.opt !== 'delete';
 
-        return isItemChecked && matchProject;
+        return isItemChecked && matchProject && isNotDeleted;
       });
 
       let ppt = new pptxgen();
@@ -586,117 +655,204 @@ const PptModal = ({ projectData, project, }) => {
         }
         groupedData[category].push(item);
       });
-      // const backgroundPath = RNFS.MainBundlePath + '/src/assets/solarvestFirstBackground.png';
-      // console.log(RNFS.MainBundlePath);
       const firstPage = ppt.addSlide();
-      // firstPage.addImage({
-      //   // path: './src/assets/solarvestFirstBackground.png',
-      //   path: backgroundPath,
-      //   x: 0,
-      //   y: 0,
-      //   w: '100%',
-      //   h: '100%',
-      //   sizing: {
-      //     type: 'cover'
-      //   }
-      // });
+      firstPage.background = { data: backgroundImg }
       firstPage.addText("Client:", {
-        x: 1.5,
-        y: 1.5,
-        w: '5%',
+        x: 2.5,
+        y: 1.6,
+        w: '15%',
         h: 1,
-        fontSize: 18,
+        fontSize: 16,
         bold: true,
-        color: '#666666'
+        color: '#666666',
+        fontFace: font
       });
       firstPage.addText("LOGO", {
-        x: 1.5,
-        y: 2,
-        w: '10%',
+        x: 2.5,
+        y: 3,
+        w: '15%',
         h: 1,
         fontSize: 20,
         bold: true,
-        color: '#666666'
+        color: '#666666',
+        fontFace: font
       });
-      firstPage.addText("PROJECT NAME", {
-        x: 1.5,
-        y: 2,
-        w: '10%',
+      firstPage.addText(project.toUpperCase(), {
+        x: 5.5,
+        y: 3,
+        w: '50%',
         h: 1,
         fontSize: 20,
         bold: true,
-        color: '#666666'
+        color: '#666666',
+        fontFace: font
       });
       const formattedDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).replace(',', '').replace(/(\d)(st|nd|rd|th)/, '$1$2');
       firstPage.addText(`Brief Summary| ${formattedDate}`, {
-        x: 1.75,
-        y: 2,
-        w: '10%',
+        x: 3,
+        y: 4,
+        w: '50%',
         h: 1,
         fontSize: 20,
-        bold: true,
-        color: '#666666'
+        color: '#666666',
+        fontFace: font
       });
-
+      const siteInformation = ppt.addSlide();
+      siteInformation.background = { data: titleBackgroundImg };
+      siteInformation.addText("SITE INFORMATION", {
+        x: 0.5,
+        y: 2,
+        w: '50%',
+        h: 1,
+        fontSize: 28,
+        bold: true,
+        color: '#FFFFFF',
+        fontFace: font
+      });
+      siteInformation.addImage({
+        data: siteInfoLogo,
+        x: '90%',
+        y: '90%',
+        w: '30%',
+        h: 1
+      });
       for (const [category, items] of Object.entries(groupedData)) {
-
         // Add a new slide for the category
         const categorySlide = ppt.addSlide();
-        categorySlide.addText(`Project: ${project}`, {
-          x: 1,
-          y: 1,
-          w: '80%',
-          h: 1.5,
-          fontSize: 48,
-          bold: true,
-          color: '000000'
-        });
-
-        categorySlide.addText(`Category: ${category}`, {
-          x: 1,
+        categorySlide.background = { data: titleBackgroundImg };
+        categorySlide.addText(`PROPOSED ${category.toUpperCase()}`, {
+          x: 0.5,
           y: 2,
-          w: '80%',
-          h: 1.5,
-          fontSize: 48,
+          w: '75%',
+          h: 0.75,
+          fontSize: 28,
           bold: true,
-          color: '000000'
+          color: '#FFFFFF'
+        });
+        categorySlide.addImage({
+          data: titleLogo,
+          x: '90%',
+          y: '90%',
+          w: '30%',
+          h: 1
         });
 
         // Iterate over the items under the current category to create slides
         items.forEach((item, index) => {
           const { categoryId, picture, description } = item;
           const itemSlide = ppt.addSlide();
+          itemSlide.background = { data: mainBackground }
           // Add categoryId as a small header
           itemSlide.addText(`${category} - No. ${categoryId}`, {
-            x: 1,
-            y: 0.5,
+            x: 0.2,
+            y: 0.2,
             w: '40%',
-            h: 1,
-            fontSize: 32,
-            italic: true,
-            color: '000000'
+            h: 0.5,
+            fontSize: 24,
+            bold: true,
+            underline: true,
+            color: '#BC1498',
+            fontFace: font
           });
+          let yVal = 1;
+          photoItems.forEach((item) => {
+            if (item.color) {
+              itemSlide.addShape(ppt.ShapeType.rect, {
+                fill: { color: item.color, transparency: 80 },
+                line: { color: item.color, width: 2 },
+                x: 0.2,
+                y: yVal,
+                w: "2%",
+                h: "3%"
+              });
+            } else if (item.icon) {
+              itemSlide.addImage({
+                data: dropPointIcon,
+                x: 0.2,
+                y: yVal,
+                w: '2%',
+                h: '3%'
+              })
+            } else if (item.shape) {
+              itemSlide.addShape(ppt.ShapeType.line, {
+                x: 0.2,
+                y: yVal + 0.05,
+                w: '2%',
+                h: 0,
+                line: {
+                  color: item.shape,
+                  width: 1.5
+                }
+              });
+            }
+            itemSlide.addText(item.text, {
+              x: 0.4,
+              y: yVal,
+              w: '20%',
+              h: '3%',
+              fontSize: 11,
+              color: '#000000',
+              fontFace: font
+            });
+            yVal += 0.25
+          })
 
           // Add description as text
-          itemSlide.addText(description || 'No description available', {
-            x: 1,
-            y: 1,
-            w: '40%',
-            h: '80%',
-            fontSize: 24,
-            color: '000000'
+          itemSlide.addText(description || 'No Description', {
+            x: 0.2,
+            y: 3,
+            w: '25%',
+            h: '45%',
+            fontSize: 18,
+            color: '#BC1498',
+            fontFace: font
           });
 
           // Add picture as an image
           itemSlide.addImage({
             path: picture,
-            x: 5,
+            x: 3,
             y: 1,
-            w: 4,
-            h: 4
+            w: '65%',
+            h: '80%'
           });
         });
       }
+      const additionalNoteSlide = ppt.addSlide();
+      additionalNoteSlide.background = { data: mainBackground };
+      additionalNoteSlide.addText('Additional Notes', {
+        x: 0.2,
+        y: 0.2,
+        w: '30%',
+        h: 0.5,
+        fontSize: 24,
+        underline: true,
+        bold: true,
+        color: '#BC1498',
+        fontFace: font
+      });
+      additionalNoteSlide.addShape(ppt.ShapeType.rect, {
+        fill: { color: "#EDEDED" },
+        x: 0.2,
+        y: 0.7,
+        w: "95%",
+        h: "80%"
+      });
+      const noteText = {
+        fontSize: 16,
+        color: '#BC1498',
+        fontFace: font,
+        isTextBox: true,
+        bold: true,
+        breakline: true
+      }
+      const textObj = [
+        { text: "-Problem:", options: noteText },
+        { text: " Solution:", options: noteText },
+      ]
+      additionalNoteSlide.addText(textObj, { x: 0.5, y: 1.5 });
+      const footerSlide = ppt.addSlide();
+      footerSlide.background = { data: mainBackground }
       const base64 = await ppt.write("base64");
       const timestamp = new Date().getTime();
 
@@ -705,8 +861,8 @@ const PptModal = ({ projectData, project, }) => {
       await RNFS.writeFile(filePath, base64, 'base64');
       console.log(`File saved successfully at: ${filePath}`);
       uploadReport(base64, reportName);
+      Alert.alert('PowerPoint Report Generated Successful!:', reportName);
       setModalVisible(!modalVisible);
-      console.log('PowerPoint file saved successfully:', reportName);
     } catch (error) {
       console.error('Error saving the PowerPoint file:', error);
     }
@@ -722,11 +878,9 @@ const PptModal = ({ projectData, project, }) => {
           Alert.alert('Modal has been closed.');
           setModalVisible(!modalVisible);
         }}>
-
-        <View style={styles.modalView}>
-          <ScrollView contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <View>
+        <View style={styles.centeredView}>
+          <View style={styles.modalView}>
+            <ScrollView contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center' }}>
               {projectData.map((category, index) => (
                 <Accordion
                   key={index}
@@ -735,15 +889,14 @@ const PptModal = ({ projectData, project, }) => {
                   onItemCheck={handleItemCheck}
                 />
               ))}
-            </View>
-          </ScrollView>
-          {/* <Button title={"GENERATE"} onPress={generatePowerpoint} /> */}
-          <Button title={"GENERATE"} onPress={generatePowerpoint} />
-          <Pressable
-            style={[styles.button, styles.buttonClose]}
-            onPress={() => setModalVisible(!modalVisible)}>
-            <Text style={styles.textStyle}>CLOSE</Text>
-          </Pressable>
+            </ScrollView>
+            <Button title={"GENERATE"} onPress={generatePowerpoint} />
+            <Pressable
+              style={[styles.button, styles.buttonClose]}
+              onPress={() => setModalVisible(!modalVisible)}>
+              <Text style={styles.textStyle}>CLOSE</Text>
+            </Pressable>
+          </View>
         </View>
       </Modal>
       <Button title='GENERATE REPORT' onPress={() => setModalVisible(true)} />
@@ -851,11 +1004,11 @@ const LoginPage = ({ navigation }) => {
 
   const doUserLogIn = async () => {
     // if (username === 'SolarvestSiteSurvey00' && password === 'SV890432') {
-    console.log("login");
-    if (username === 'username' && password === 'password') {
+    if (username === 'SolarvestSiteSurvey00' && (password === 'SV890432' || 
+                    (password === "AppTesting" && new Date() < new Date('2024-01-06')))) {
       Alert.alert('Login Successful', 'You have successfully logged in!');
       await AsyncStorage.setItem('isLoggedIn', JSON.stringify(true)); // Save login state
-      navigation.navigate('Project');
+      navigation.replace('Project');
     } else {
       Alert.alert('Login Failed', 'Invalid username or password.');
     }
@@ -1082,8 +1235,6 @@ function App() {
 
       try {
         const [AccessToken, formDigest] = await retrieveAccessToken();
-        console.log("Accesstoken: " + AccessToken)
-        console.log("formDigest: " + formDigest)
         await uploadProjectFolder(AccessToken, formDigest);
         checkDate();
         const storedDataJSON = await AsyncStorage.getItem('imageCategory');
@@ -1114,6 +1265,13 @@ function App() {
                   const sevenDays = 7 * 24 * 60 * 60 * 1000;
                   const createdDate = parseInt(item.id.substring(0, item.id.length - 3));
                   if (currentDate - createdDate > sevenDays) {
+                    RNFS.unlink(item.picture)
+                      .then(() => {
+                        console.log('FILE DELETED from local');
+                      })
+                      .catch((err) => {
+                        console.log(err.message);
+                      });
                     storedData = storedData.filter(dataItem => dataItem.id !== item.id);
                     await AsyncStorage.setItem('imageCategory', JSON.stringify(storedData));
                   } else {
@@ -1171,7 +1329,7 @@ function App() {
               }
               console.log("File Deleted: " + response);
             } catch (error) {
-              console.log(error.response.data);
+              console.log(error);
             }
           }
         }));
@@ -1273,15 +1431,32 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2
+      height: 2,
     },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
     width: '90%',
     height: '90%',
-    rowGap: 5
   },
+  // modalView: {
+  //   margin: 20,
+  //   backgroundColor: 'white',
+  //   borderRadius: 20,
+  //   padding: 35,
+  //   alignItems: 'center',
+  //   shadowColor: '#000',
+  //   shadowOffset: {
+  //     width: 0,
+  //     height: 2
+  //   },
+  //   shadowOpacity: 0.25,
+  //   shadowRadius: 4,
+  //   elevation: 5,
+  //   width: '90%',
+  //   height: '90%',
+  //   rowGap: 5
+  // },
   button: {
     borderRadius: 20,
     padding: 10,
@@ -1379,7 +1554,6 @@ const styles = StyleSheet.create({
     borderColor: '#444'
   },
   displayPictureContainer: {
-    flex: 1,
     margin: 5,
     padding: 15,
     borderWidth: 2,

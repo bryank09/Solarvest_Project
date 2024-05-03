@@ -116,8 +116,10 @@ export const Settings = ({ navigation }) => {
                     onPress: async () => {
                         AsyncStorage.setItem('isLoggedIn', JSON.stringify(false));
                         Alert.alert("User Loged Out!");
-                        navigation.navigate('Login');
-
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'Login' }],
+                        });
                     }
                 }
             ],
